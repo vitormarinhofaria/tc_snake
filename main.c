@@ -151,13 +151,14 @@ void handleMovement(Vec2 *snakePos, char mapState[HEIGHT][WIDTH])
         }
     }
     char newTile = mapState[snakePos->y][snakePos->x];
-    if(newTile == 'f'){
+    if (newTile == 'f')
+    {
         // MessageBox(NULL, L"Comeu Fruta", NULL, MB_OK);
     }
     mapState[snakePos->y][snakePos->x] = 's';
 }
 
-bool spawnFruit(Vec2* pos, char mapState[HEIGHT][WIDTH])
+bool spawnFruit(Vec2 *pos, char mapState[HEIGHT][WIDTH])
 {
     int x = rand() % WIDTH;
     int y = rand() % HEIGHT;
@@ -171,6 +172,21 @@ bool spawnFruit(Vec2* pos, char mapState[HEIGHT][WIDTH])
     return spawnFruit(pos, mapState);
 }
 
+BOOL WINAPI sigHandler(DWORD ctrlType)
+{
+    switch (ctrlType)
+    {
+    case CTRL_C_EVENT:
+        HANDLE console = GetStdHandle(STD_OUTPUT_HANDLE);
+        CONSOLE_CURSOR_INFO cursor = {.bVisible = true, .dwSize = sizeof(CONSOLE_CURSOR_INFO)};
+        SetConsoleCursorInfo(console, &cursor);
+        exit(0);
+        break;
+    default:
+        break;
+    }
+}
+
 int main()
 {
     HANDLE console = GetStdHandle(STD_OUTPUT_HANDLE);
@@ -178,6 +194,8 @@ int main()
 
     CONSOLE_CURSOR_INFO cursor = {.bVisible = false, .dwSize = sizeof(CONSOLE_CURSOR_INFO)};
     SetConsoleCursorInfo(console, &cursor);
+
+    SetConsoleCtrlHandler(sigHandler, true);
 
     system("pause");
     system("cls");
@@ -192,10 +210,10 @@ int main()
 
     Vec2 snakePos = {WIDTH / 2, HEIGHT / 2};
     mapState[snakePos.y][snakePos.x] = 's';
-    
+
     Vec2 fruitPos;
     spawnFruit(&fruitPos, mapState);
-    
+
     long time = 0;
     QueryPerformanceCounter(&time);
     srand(time);
@@ -205,16 +223,18 @@ int main()
         drawMap(buffer, mapState);
         // writePixel(buffer, snakePos.x, snakePos.y, WHITE, 219);
         swapBuffer(console, buffer);
-        
-        if(vec2Equals(snakePos, fruitPos)){
+
+        if (vec2Equals(snakePos, fruitPos))
+        {
         }
-        if(mapState[fruitPos.y][fruitPos.x] != 'f'){
+        if (mapState[fruitPos.y][fruitPos.x] != 'f')
+        {
             spawnFruit(&fruitPos, mapState);
         }
 
         handleMovement(&snakePos, mapState);
         clearInputs();
-        Sleep(160);
+        Sleep(16*6);
     }
 
     return 0;
