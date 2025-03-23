@@ -22,7 +22,6 @@ void restoreConsole(HANDLE console)
 {
     CONSOLE_CURSOR_INFO cursor = {.bVisible = true, .dwSize = sizeof(CONSOLE_CURSOR_INFO)};
     SetConsoleCursorInfo(console, &cursor);
-    SetConsoleTextAttribute(console, 0x0);
 }
 
 void writePixel(CHAR_INFO *buffer, int x, int y, int color, char ch)
@@ -131,7 +130,6 @@ void writeText(HANDLE console, int x, int y, int color, const char *text, size_t
 
 void drawScore(HANDLE console, int score)
 {
-    SetConsoleTextAttribute(console, RED | FOREGROUND_INTENSITY);
     char scoreStr[256] = {0};
     sprintf(scoreStr, "Score: %d", score);
     writeText(console, WIDTH + 1, 0, FOREGROUND_GREEN | FOREGROUND_INTENSITY, scoreStr, strlen(scoreStr));
