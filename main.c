@@ -342,6 +342,8 @@ int main(int argc, char **argv)
     Vec2 moveDir = {-1, 0};
 
     byte state = 0;
+    char* th = "Press P to toggle ASCII mode";
+    writeText(console, WIDTH + 1, 1, FOREGROUND_GREEN | FOREGROUND_INTENSITY, th, strlen(th));
 
     while (running)
     {
