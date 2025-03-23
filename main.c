@@ -1,7 +1,6 @@
 #define _WIN32_WINNT 0x0500
 #include <stdio.h>
 #include <windows.h>
-#include <threads.h>
 #include <stdbool.h>
 #include "main.h"
 
@@ -12,6 +11,19 @@
 #define BLUE FOREGROUND_BLUE
 #define GREEN FOREGROUND_GREEN
 #define WHITE RED | BLUE | GREEN
+
+#define KEYPRESSED 0x0001
+#define KEYDOWN 0x8000
+
+#define IS_DEAD 0b0001
+#define GOT_FRUIT 0b0010
+
+void restoreConsole(HANDLE console)
+{
+    CONSOLE_CURSOR_INFO cursor = {.bVisible = true, .dwSize = sizeof(CONSOLE_CURSOR_INFO)};
+    SetConsoleCursorInfo(console, &cursor);
+    SetConsoleTextAttribute(console, 0x0);
+}
 
 void writePixel(CHAR_INFO *buffer, int x, int y, int color, char ch)
 {
@@ -73,19 +85,53 @@ void drawMap(CHAR_INFO buffer[HEIGHT * WIDTH], const char mapState[HEIGHT][WIDTH
             }
             case 'f':
             {
-                color = GREEN;
+                color = GREEN | BACKGROUND_GREEN | FOREGROUND_INTENSITY;
                 break;
             }
-            // case 's': {
-            //     color = WHITE;
-            //     break;
-            // }
+            case 's':
+            {
+                color = FOREGROUND_GREEN | FOREGROUND_BLUE | FOREGROUND_INTENSITY;
+                break;
+            }
+            case 't':
+            {
+                color = FOREGROUND_GREEN | FOREGROUND_BLUE;
+                break;
+            }
             default:
                 break;
             }
             writePixel(buffer, x, y, color, 219);
         }
     }
+}
+
+void writeText(HANDLE console, int x, int y, int color, const char *text, size_t len)
+{
+    WORD attr[1024] = {color};
+    memset(attr, color, 1024);
+    COORD coord = {.X = x, .Y = y};
+    int w = 0;
+    WriteConsoleOutputCharacterA(console, text, len, coord, &w);
+    WriteConsoleOutputAttribute(console, attr, len, coord, &w);
+}
+
+void drawScore(HANDLE console, int score)
+{
+    SetConsoleTextAttribute(console, RED | FOREGROUND_INTENSITY);
+    char scoreStr[256] = {0};
+    sprintf(scoreStr, "Score: %d", score);
+    writeText(console, WIDTH + 1, 0, FOREGROUND_GREEN | FOREGROUND_INTENSITY, scoreStr, strlen(scoreStr));
+}
+
+void gameOver(HANDLE console)
+{
+    char gameOverStr[] = "Game Over";
+    int w = 0;
+    int strLen = strlen(gameOverStr);
+    COORD coord = {.X = (WIDTH / 2) - (strLen / 2), .Y = HEIGHT / 2};
+    writeText(console, coord.X, coord.Y, RED | FOREGROUND_INTENSITY, gameOverStr, strLen);
+    restoreConsole(console);
 }
 
 SHORT keyState[256] = {0};
@@ -99,9 +145,18 @@ int inputLoop(void *arg)
         for (int i = 0; i < 256; i++)
         {
             keyState[i] = GetAsyncKeyState(i);
-            pressedKeys[i] = (keyState[i] & 0x8000) | pressedKeys[i];
+            pressedKeys[i] = (keyState[i] & KEYDOWN) | pressedKeys[i];
         }
         Sleep(1);
+    }
+}
+
+void readInput()
+{
+    for (int i = 0; i < 256; i++)
+    {
+        keyState[i] = GetAsyncKeyState(i);
+        pressedKeys[i] = (keyState[i] & KEYPRESSED) | pressedKeys[i];
     }
 }
 
@@ -115,47 +170,45 @@ char getTile(const Vec2 pos, const char mapState[WIDTH][HEIGHT])
     return mapState[pos.x][pos.y];
 }
 
-void handleMovement(Vec2 *snakePos, char mapState[HEIGHT][WIDTH])
+void handleInput(Vec2 *moveDir)
 {
-    mapState[snakePos->y][snakePos->x] = '-';
-    if (pressedKeys['A'])
+    if (pressedKeys['A'] && moveDir->x != 1)
     {
-        snakePos->x--;
-        if (mapState[snakePos->y][snakePos->x] == '#')
-        {
-            snakePos->x++;
-        }
+        moveDir->x = -1;
+        moveDir->y = 0;
     }
-    if (pressedKeys['D'])
+    if (pressedKeys['D'] && moveDir->x != -1)
     {
-        snakePos->x++;
-        if (mapState[snakePos->y][snakePos->x] == '#')
-        {
-            snakePos->x--;
-        }
+        moveDir->x = 1;
+        moveDir->y = 0;
     }
-    if (pressedKeys['W'])
+    if (pressedKeys['W'] && moveDir->y != 1)
     {
-        snakePos->y--;
-        if (mapState[snakePos->y][snakePos->x] == '#')
-        {
-            snakePos->y++;
-        }
+        moveDir->x = 0;
+        moveDir->y = -1;
     }
-    if (pressedKeys['S'])
+    if (pressedKeys['S'] && moveDir->y != -1)
     {
-        snakePos->y++;
-        if (mapState[snakePos->y][snakePos->x] == '#')
-        {
-            snakePos->y--;
-        }
+        moveDir->x = 0;
+        moveDir->y = 1;
     }
-    char newTile = mapState[snakePos->y][snakePos->x];
-    if (newTile == 'f')
+}
+
+void checkColision(Vec2 *snake[256], char mapState[HEIGHT][WIDTH], byte *state)
+{
+    Vec2 *snakeHead = snake[0];
+    if (snakeHead->x < 0 || snakeHead->x >= WIDTH || snakeHead->y < 0 || snakeHead->y >= HEIGHT)
     {
-        // MessageBox(NULL, L"Comeu Fruta", NULL, MB_OK);
+        *state |= IS_DEAD;
     }
-    mapState[snakePos->y][snakePos->x] = 's';
+    if (mapState[snakeHead->y][snakeHead->x] == '#' || mapState[snakeHead->y][snakeHead->x] == 't')
+    {
+        *state |= IS_DEAD;
+    }
+    if (mapState[snakeHead->y][snakeHead->x] == 'f')
+    {
+        *state |= GOT_FRUIT;
+    }
 }
 
 bool spawnFruit(Vec2 *pos, char mapState[HEIGHT][WIDTH])
@@ -172,19 +225,67 @@ bool spawnFruit(Vec2 *pos, char mapState[HEIGHT][WIDTH])
     return spawnFruit(pos, mapState);
 }
 
+
 BOOL WINAPI sigHandler(DWORD ctrlType)
 {
     switch (ctrlType)
     {
     case CTRL_C_EVENT:
         HANDLE console = GetStdHandle(STD_OUTPUT_HANDLE);
-        CONSOLE_CURSOR_INFO cursor = {.bVisible = true, .dwSize = sizeof(CONSOLE_CURSOR_INFO)};
-        SetConsoleCursorInfo(console, &cursor);
+        restoreConsole(console);
         exit(0);
         break;
     default:
         break;
     }
+    return true;
+}
+
+void drawSnake(Vec2 *snake[256], char mapState[HEIGHT][WIDTH])
+{
+    mapState[snake[0]->y][snake[0]->x] = 's';
+    for (int i = 1; i < 256; i++)
+    {
+        Vec2 *part = snake[i];
+        if (part == NULL)
+        {
+            break;
+        }
+        mapState[part->y][part->x] = 't';
+    }
+}
+void clearSnake(Vec2 *snake[256], char mapState[HEIGHT][WIDTH])
+{
+    for (int i = 0; i < 256; i++)
+    {
+        Vec2 *part = snake[i];
+        if (part == NULL)
+        {
+            break;
+        }
+        mapState[part->y][part->x] = '-';
+    }
+}
+void moveSnake(Vec2 *snake[256], int numParts, Vec2 moveDir, byte *state)
+{
+    Vec2 *snakeHead = snake[0];
+    Vec2 newHead = *snakeHead;
+    vec2Add(&newHead, moveDir);
+    for (int i = numParts; i > 0; i--)
+    {
+        Vec2 *part = snake[i];
+        if (part == NULL)
+        {
+            break;
+        }
+        *snake[i] = *snake[i - 1];
+        if (vec2Equals(*snake[i], newHead))
+        {
+            *state |= IS_DEAD;
+            break;
+        }
+    }
+    *snakeHead = newHead;
 }
 
 int main()
@@ -197,44 +298,64 @@ int main()
 
     SetConsoleCtrlHandler(sigHandler, true);
 
-    system("pause");
     system("cls");
-
-    thrd_t inputThread;
-    thrd_create(&inputThread, inputLoop, NULL);
+    int numParts = 0;
+    Vec2 *snake[256] = {NULL};
+    snake[0] = malloc(sizeof(Vec2));
 
     char mapState[HEIGHT][WIDTH] = {0};
     memcpy_s(mapState, WIDTH * HEIGHT, map, WIDTH * HEIGHT);
 
     bool running = true;
+    Vec2 *snakeHead = snake[0];
+    snakeHead->x = WIDTH / 2;
+    snakeHead->y = HEIGHT / 2;
 
-    Vec2 snakePos = {WIDTH / 2, HEIGHT / 2};
-    mapState[snakePos.y][snakePos.x] = 's';
+    drawSnake(snake, mapState);
 
     Vec2 fruitPos;
     spawnFruit(&fruitPos, mapState);
 
-    long time = 0;
+    LARGE_INTEGER time;
     QueryPerformanceCounter(&time);
-    srand(time);
+    srand(time.HighPart);
+    Vec2 moveDir = {-1, 0};
+
+    byte state = 0;
 
     while (running)
     {
-        drawMap(buffer, mapState);
-        // writePixel(buffer, snakePos.x, snakePos.y, WHITE, 219);
-        swapBuffer(console, buffer);
+        readInput();
 
-        if (vec2Equals(snakePos, fruitPos))
-        {
-        }
         if (mapState[fruitPos.y][fruitPos.x] != 'f')
         {
+        }
+
+        handleInput(&moveDir);
+        clearSnake(snake, mapState);
+        moveSnake(snake, numParts, moveDir, &state);
+        checkColision(snake, mapState, &state);
+        drawSnake(snake, mapState);
+        if (state & IS_DEAD)
+        {
+            running = false;
+            gameOver(console);
+            break;
+        }
+        if (state & GOT_FRUIT)
+        {
+            numParts++;
+            snake[numParts] = malloc(sizeof(Vec2));
+            *snake[numParts] = *snake[numParts - 1];
             spawnFruit(&fruitPos, mapState);
         }
 
-        handleMovement(&snakePos, mapState);
+        drawMap(buffer, mapState);
+        swapBuffer(console, buffer);
+        drawScore(console, numParts);
         clearInputs();
-        Sleep(16*6);
+        state = 0;
+        Sleep(160);
     }
 
     return 0;
