@@ -62,7 +62,7 @@ const char map[HEIGHT][WIDTH] = {
     "##------------------------------------##",
     "########################################",
 };
-
+bool isAscii = false;
 void drawMap(CHAR_INFO buffer[HEIGHT * WIDTH], const char mapState[HEIGHT][WIDTH])
 {
     for (int y = 0; y < HEIGHT; y++)
@@ -71,37 +71,50 @@ void drawMap(CHAR_INFO buffer[HEIGHT * WIDTH], const char mapState[HEIGHT][WIDTH
         {
             char c = mapState[y][x];
             int color = WHITE;
+            char w = ' ';
             switch (c)
             {
             case '#':
             {
                 color = RED;
+                w = '#';
                 break;
             }
             case '-':
             {
-                color = BLUE;
+                color = 0;
+                w = ' ';
                 break;
             }
             case 'f':
             {
-                color = GREEN | BACKGROUND_GREEN | FOREGROUND_INTENSITY;
+                color = GREEN | FOREGROUND_INTENSITY;
+                w = '*';
                 break;
             }
             case 's':
             {
                 color = FOREGROUND_GREEN | FOREGROUND_BLUE | FOREGROUND_INTENSITY;
+                w = '@';
                 break;
             }
             case 't':
             {
                 color = FOREGROUND_GREEN | FOREGROUND_BLUE;
+                w = 'o';
                 break;
             }
             default:
                 break;
             }
-            writePixel(buffer, x, y, color, 219);
+            if (isAscii)
+            {
+                writePixel(buffer, x, y, color, w);
+            }
+            else
+            {
+                writePixel(buffer, x, y, color, 219);
+            }
         }
     }
 }
@@ -192,6 +205,9 @@ void handleInput(Vec2 *moveDir)
         moveDir->x = 0;
         moveDir->y = 1;
     }
+    if(pressedKeys['P']){
+        isAscii = !isAscii;
+    }
 }
 
 void checkColision(Vec2 *snake[256], char mapState[HEIGHT][WIDTH], byte *state)
@@ -224,7 +240,6 @@ bool spawnFruit(Vec2 *pos, char mapState[HEIGHT][WIDTH])
     }
     return spawnFruit(pos, mapState);
 }
-
 
 BOOL WINAPI sigHandler(DWORD ctrlType)
 {
@@ -288,8 +303,13 @@ void moveSnake(Vec2 *snake[256], int numParts, Vec2 moveDir, byte *state)
     *snakeHead = newHead;
 }
 
-int main()
+int main(int argc, char **argv)
 {
+    if(argc > 1){
+        if(strcmp(argv[1], "ascii") == 0){
+            isAscii = true;
+        }
+    }
     HANDLE console = GetStdHandle(STD_OUTPUT_HANDLE);
     CHAR_INFO buffer[WIDTH * HEIGHT] = {0};
 
