@@ -1,11 +1,12 @@
 #define _WIN32_WINNT 0x0500
+#include <fcntl.h>
 #include <stdio.h>
 #include <windows.h>
 #include <stdbool.h>
 #include "main.h"
 
 #define HEIGHT 20
-#define WIDTH (HEIGHT * 2)
+#define WIDTH 20
 
 #define RED FOREGROUND_RED
 #define BLUE FOREGROUND_BLUE
@@ -24,82 +25,106 @@ void restoreConsole(HANDLE console)
     SetConsoleCursorInfo(console, &cursor);
 }
 
-void writePixel(CHAR_INFO *buffer, int x, int y, int color, char ch)
+void writePixel(CHAR_INFO *buffer, int x, int y, int color, wchar_t ch)
 {
-    buffer[(WIDTH * y) + x].Char.UnicodeChar = ch;
-    buffer[(WIDTH * y) + x].Attributes = color;
+    int bufferY = y / 2;
+    int position = (WIDTH * bufferY) + x;
+    CHAR_INFO *cell = &buffer[position];
+    cell->Char.UnicodeChar = ch;
+    int currentColor = cell->Attributes;
+
+    if (y % 2 == 0)
+    {
+        cell->Attributes = color;
+    }
+    else
+    {
+        if (currentColor != 0)
+            color = color | currentColor;
+        cell->Attributes = color;
+    }
 }
 
+#define BHEIGHT (HEIGHT / 2)
 void swapBuffer(HANDLE console, CHAR_INFO *buffer)
 {
-    static COORD size = {.X = WIDTH, .Y = HEIGHT};
+    static COORD size = {.X = WIDTH, .Y = BHEIGHT};
     static COORD base = {.X = 0, .Y = 0};
-    static SMALL_RECT rect = {.Left = 0, .Top = 0, .Right = WIDTH - 1, .Bottom = HEIGHT - 1};
-    WriteConsoleOutputA(console, buffer, size, base, &rect);
-    SetConsoleCursorPosition(console, (COORD){.X = WIDTH + 1, .Y = HEIGHT + 1});
+    static SMALL_RECT rect = {.Left = 0, .Top = 0, .Right = WIDTH - 1, .Bottom = BHEIGHT - 1};
+    WriteConsoleOutputW(console, buffer, size, base, &rect);
+    SetConsoleCursorPosition(console, (COORD){.X = WIDTH + 1, .Y = BHEIGHT + 1});
+    memset(buffer, 0, sizeof(CHAR_INFO) * WIDTH * BHEIGHT);
 }
 
-const char map[HEIGHT][WIDTH] = {
-    "########################################",
-    "##------------------------------------##",
-    "##------------------------------------##",
-    "##------------------------------------##",
-    "##------------------------------------##",
-    "##------------------------------------##",
-    "##------------------------------------##",
-    "##------------------------------------##",
-    "##------------------------------------##",
-    "##------------------------------------##",
-    "##------------------------------------##",
-    "##------------------------------------##",
-    "##------------------------------------##",
-    "##------------------------------------##",
-    "##------------------------------------##",
-    "##------------------------------------##",
-    "##------------------------------------##",
-    "##------------------------------------##",
-    "##------------------------------------##",
-    "########################################",
+const wchar_t map[HEIGHT][WIDTH] = {
+    L"####################",
+    L"#------------------#",
+    L"#------------------#",
+    L"#------------------#",
+    L"#------------------#",
+    L"#------------------#",
+    L"#------------------#",
+    L"#------------------#",
+    L"#------------------#",
+    L"#------------------#",
+    L"#------------------#",
+    L"#------------------#",
+    L"#------------------#",
+    L"#------------------#",
+    L"#------------------#",
+    L"#------------------#",
+    L"#------------------#",
+    L"#------------------#",
+    L"#------------------#",
+    L"####################",
 };
+
+int getColor(int y, int upper, int lower)
+{
+    if (y % 2 == 0)
+        return upper;
+    return lower;
+}
 bool isAscii = false;
-void drawMap(CHAR_INFO buffer[HEIGHT * WIDTH], const char mapState[HEIGHT][WIDTH])
+void drawMap(CHAR_INFO buffer[HEIGHT * WIDTH], const wchar_t mapState[HEIGHT][WIDTH])
 {
     for (int y = 0; y < HEIGHT; y++)
     {
         for (int x = 0; x < WIDTH; x++)
         {
-            char c = mapState[y][x];
+            wchar_t c = mapState[y][x];
             int color = WHITE;
-            char w = ' ';
+            wchar_t w = ' ';
             switch (c)
             {
-            case '#':
+            case L'#':
             {
-                color = RED;
-                w = '#';
+                color = getColor(y, FOREGROUND_RED, BACKGROUND_RED);
+                w = L'#';
                 break;
             }
-            case '-':
+            case L'-':
             {
-                color = 0;
-                w = ' ';
+                // color = getColor(y, FOREGROUND_BLUE | FOREGROUND_GREEN | FOREGROUND_RED, BACKGROUND_BLUE | BACKGROUND_GREEN | BACKGROUND_RED);
+                color = getColor(y, FOREGROUND_BLUE | FOREGROUND_GREEN | FOREGROUND_RED | FOREGROUND_INTENSITY, BACKGROUND_BLUE | BACKGROUND_GREEN | BACKGROUND_RED | BACKGROUND_INTENSITY);
+                w = L' ';
                 break;
             }
-            case 'f':
+            case L'f':
             {
-                color = GREEN | FOREGROUND_INTENSITY;
-                w = '*';
+                color = getColor(y, FOREGROUND_GREEN | FOREGROUND_INTENSITY, BACKGROUND_GREEN | BACKGROUND_INTENSITY);
+                w = L'*';
                 break;
             }
-            case 's':
+            case L's':
             {
-                color = FOREGROUND_GREEN | FOREGROUND_BLUE | FOREGROUND_INTENSITY;
+                color = getColor(y, FOREGROUND_GREEN | FOREGROUND_BLUE | FOREGROUND_INTENSITY, BACKGROUND_GREEN | BACKGROUND_BLUE | BACKGROUND_INTENSITY);
                 w = '@';
                 break;
             }
-            case 't':
+            case L't':
             {
-                color = FOREGROUND_GREEN | FOREGROUND_BLUE;
+                color = getColor(y, FOREGROUND_GREEN | FOREGROUND_BLUE, BACKGROUND_GREEN | BACKGROUND_BLUE);
                 w = 'o';
                 break;
             }
@@ -112,7 +137,8 @@ void drawMap(CHAR_INFO buffer[HEIGHT * WIDTH], const char mapState[HEIGHT][WIDTH
             }
             else
             {
-                writePixel(buffer, x, y, color, 219);
+                // writePixel(buffer, x, y, color, 219);
+                writePixel(buffer, x, y, color, L'▀');
             }
         }
     }
@@ -176,7 +202,7 @@ void clearInputs()
     memset(pressedKeys, 0, 256);
 }
 
-char getTile(const Vec2 pos, const char mapState[WIDTH][HEIGHT])
+char getTile(const Vec2 pos, const wchar_t mapState[WIDTH][HEIGHT])
 {
     return mapState[pos.x][pos.y];
 }
@@ -203,37 +229,38 @@ void handleInput(Vec2 *moveDir)
         moveDir->x = 0;
         moveDir->y = 1;
     }
-    if(pressedKeys['P']){
+    if (pressedKeys['P'])
+    {
         isAscii = !isAscii;
     }
 }
 
-void checkColision(Vec2 *snake[256], char mapState[HEIGHT][WIDTH], byte *state)
+void checkColision(Vec2 *snake[256], wchar_t mapState[HEIGHT][WIDTH], byte *state)
 {
     Vec2 *snakeHead = snake[0];
     if (snakeHead->x < 0 || snakeHead->x >= WIDTH || snakeHead->y < 0 || snakeHead->y >= HEIGHT)
     {
         *state |= IS_DEAD;
     }
-    if (mapState[snakeHead->y][snakeHead->x] == '#' || mapState[snakeHead->y][snakeHead->x] == 't')
+    if (mapState[snakeHead->y][snakeHead->x] == L'#' || mapState[snakeHead->y][snakeHead->x] == L't')
     {
         *state |= IS_DEAD;
     }
-    if (mapState[snakeHead->y][snakeHead->x] == 'f')
+    if (mapState[snakeHead->y][snakeHead->x] == L'f')
     {
         *state |= GOT_FRUIT;
     }
 }
 
-bool spawnFruit(Vec2 *pos, char mapState[HEIGHT][WIDTH])
+bool spawnFruit(Vec2 *pos, wchar_t mapState[HEIGHT][WIDTH])
 {
     int x = rand() % WIDTH;
     int y = rand() % HEIGHT;
-    if (mapState[y][x] == '-')
+    if (mapState[y][x] == L'-')
     {
         pos->x = x;
         pos->y = y;
-        mapState[y][x] = 'f';
+        mapState[y][x] = L'f';
         return true;
     }
     return spawnFruit(pos, mapState);
@@ -254,9 +281,9 @@ BOOL WINAPI sigHandler(DWORD ctrlType)
     return true;
 }
 
-void drawSnake(Vec2 *snake[256], char mapState[HEIGHT][WIDTH])
+void drawSnake(Vec2 *snake[256], wchar_t mapState[HEIGHT][WIDTH])
 {
-    mapState[snake[0]->y][snake[0]->x] = 's';
+    mapState[snake[0]->y][snake[0]->x] = L's';
     for (int i = 1; i < 256; i++)
     {
         Vec2 *part = snake[i];
@@ -264,10 +291,10 @@ void drawSnake(Vec2 *snake[256], char mapState[HEIGHT][WIDTH])
         {
             break;
         }
-        mapState[part->y][part->x] = 't';
+        mapState[part->y][part->x] = L't';
     }
 }
-void clearSnake(Vec2 *snake[256], char mapState[HEIGHT][WIDTH])
+void clearSnake(Vec2 *snake[256], wchar_t mapState[HEIGHT][WIDTH])
 {
     for (int i = 0; i < 256; i++)
     {
@@ -276,7 +303,7 @@ void clearSnake(Vec2 *snake[256], char mapState[HEIGHT][WIDTH])
         {
             break;
         }
-        mapState[part->y][part->x] = '-';
+        mapState[part->y][part->x] = L'-';
     }
 }
 void moveSnake(Vec2 *snake[256], int numParts, Vec2 moveDir, byte *state)
@@ -303,13 +330,16 @@ void moveSnake(Vec2 *snake[256], int numParts, Vec2 moveDir, byte *state)
 
 int main(int argc, char **argv)
 {
-    if(argc > 1){
-        if(strcmp(argv[1], "ascii") == 0){
+    _setmode(_fileno(stdout), CP_UTF8);
+    if (argc > 1)
+    {
+        if (strcmp(argv[1], "ascii") == 0)
+        {
             isAscii = true;
         }
     }
     HANDLE console = GetStdHandle(STD_OUTPUT_HANDLE);
-    CHAR_INFO buffer[WIDTH * HEIGHT] = {0};
+    CHAR_INFO buffer[WIDTH * (BHEIGHT)] = {0};
 
     CONSOLE_CURSOR_INFO cursor = {.bVisible = false, .dwSize = sizeof(CONSOLE_CURSOR_INFO)};
     SetConsoleCursorInfo(console, &cursor);
@@ -321,8 +351,8 @@ int main(int argc, char **argv)
     Vec2 *snake[256] = {NULL};
     snake[0] = malloc(sizeof(Vec2));
 
-    char mapState[HEIGHT][WIDTH] = {0};
-    memcpy_s(mapState, WIDTH * HEIGHT, map, WIDTH * HEIGHT);
+    wchar_t mapState[HEIGHT][WIDTH] = {0};
+    memcpy_s(mapState, sizeof(mapState), map, sizeof(map));
 
     bool running = true;
     Vec2 *snakeHead = snake[0];
@@ -337,17 +367,17 @@ int main(int argc, char **argv)
     LARGE_INTEGER time;
     QueryPerformanceCounter(&time);
     srand(time.HighPart);
-    Vec2 moveDir = {-1, 0};
+    Vec2 moveDir = {1, 0};
 
     byte state = 0;
-    char* th = "Press P to toggle ASCII mode";
-    writeText(console, WIDTH + 1, 1, FOREGROUND_GREEN | FOREGROUND_INTENSITY, th, strlen(th));
+    char *th = "Press P to toggle ASCII mode";
+    // writeText(console, WIDTH + 1, 1, FOREGROUND_GREEN | FOREGROUND_INTENSITY, th, strlen(th));
 
     while (running)
     {
         readInput();
 
-        if (mapState[fruitPos.y][fruitPos.x] != 'f')
+        if (mapState[fruitPos.y][fruitPos.x] != L'f')
         {
         }
 
@@ -375,7 +405,7 @@ int main(int argc, char **argv)
         drawScore(console, numParts);
         clearInputs();
         state = 0;
-        Sleep(160);
+        Sleep(100 * 2);
     }
 
     return 0;
